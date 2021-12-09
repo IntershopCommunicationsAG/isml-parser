@@ -1,0 +1,37 @@
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+*.log
+generated/
+
+# Eclipse project files
+bin/
+.settings/
+.classpath
+.project
+
+# configuration for intershop projects
+**/.apt_generated/
+.dbeaver-data-sources.xml
+
+# editor backup files
+*.bak
+# emacs editor backup files
+*~
+\#*\#
+
+# Gradle Files
+build/
+.gradle
+
+# Ignore Gradle GUI config
+gradle-app.setting
+
+# Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
+!gradle-wrapper.jar
+
+#vscode
+.vscode
+
