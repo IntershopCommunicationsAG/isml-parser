@@ -1,0 +1,2445 @@
+options {
+  JAVA_UNICODE_ESCAPE = true;
+  IGNORE_CASE = true;
+  STATIC = false;
+}
+
+PARSER_BEGIN(ISMLtoJSPcompiler)
+
+package com.intershop.beehive.isml.internal.parser;
+
+import com.intershop.beehive.isml.capi.ISMLException;
+import com.intershop.beehive.isml.capi.ISMLTemplateConstants;
+import com.intershop.beehive.isml.internal.TemplateCompiler;
+import com.intershop.beehive.isml.internal.parser.Token;
+import java.io.*;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ArrayList;
+
+public class ISMLtoJSPcompiler implements TemplateCompiler
+{
+    boolean isSSSenabled = false;
+    int startline = 1;
+    int startcolumn = 1;
+    File in = null;
+    InputStream inStream = null;
+
+    /* JSP tags */
+    protected static String INLINE_SCRIPTING_START  = "<%=";
+    protected static String INLINE_SCRIPTING_END    = "%>";
+    protected static String SCRIPTING_START         = "<% ";
+    protected static String SCRIPTING_END           = " %>";
+    protected static String DIRECTIVE_START         = "<%@ ";
+    protected static String DIRECTIVE_END           = " %>";
+
+
+    public boolean compileTemplate( int securityLevel,
+                                    OutputStreamWriter out,
+                                    File inputfile, InputStream instr)
+           throws ISMLException
+    {
+        /* stack to test correct nesting and ending of IF's and LOOP's */
+        List<Token> nestingTable = new LinkedList<Token>();
+
+        try
+        {
+            if ( securityLevel==ALLOW_ALL )
+            {
+                isSSSenabled = true;
+            }
+            else
+            {
+                isSSSenabled = false;
+            }
+
+            in = inputfile;
+            inStream = instr;
+
+            CompactingWriter result = new CompactingWriter(new BufferedWriter(out,
+                ISMLTemplateConstants.DEFAULT_TEMPLATE_BUFFERSIZE), out.getEncoding());
+
+            result.print(DIRECTIVE_START);
+            result.print(" page buffer=\"none\"");
+            result.print(" import=\"java.util.*,java.io.*" +
+                ",com.intershop.beehive.core.internal.template.*" +
+                ",com.intershop.beehive.core.internal.template.isml.*" +
+                ",com.intershop.beehive.core.capi.log.*" +
+                ",com.intershop.beehive.core.capi.resource.*" +
+                ",com.intershop.beehive.core.capi.util.UUIDMgr,com.intershop.beehive.core.capi.util.XMLHelper" +
+                ",com.intershop.beehive.foundation.util.*" +
+                ",com.intershop.beehive.core.internal.url.*" +
+                ",com.intershop.beehive.core.internal.resource.*" +
+                ",com.intershop.beehive.core.capi.pipeline.PipelineDictionary" +
+                ",com.intershop.beehive.core.capi.naming.NamingMgr" +
+                ",com.intershop.beehive.core.capi.pagecache.PageCacheMgr" +
+                ",com.intershop.beehive.core.capi.request.SessionMgr" +
+                ",com.intershop.beehive.core.internal.request.SessionMgrImpl" +
+                ",com.intershop.beehive.core.pipelet.PipelineConstants\"");
+            result.print(" extends=\"com.intershop.beehive.core.internal.template.AbstractTemplate\"");
+            result.print(DIRECTIVE_END);
+
+            result.print(SCRIPTING_START);
+            result.print("\nboolean _boolean_result=false;\n");
+            // replace the original JSP writer with a Wrapper implementation to prevent NPE for NULL string writing
+            result.print("out = new WrappedJspWriter(out);\n");
+            result.print("TemplateExecutionConfig context = getTemplateExecutionConfig();\n");
+            result.print("createTemplatePageConfig(context.getServletRequest());\n");
+            result.print("printHeader(out);\n");
+            result.print(SCRIPTING_END);
+            result.flush();
+
+            this.specification(result, nestingTable);
+
+            if (nestingTable.size()>0)
+            {
+                throw new ParseException("Error in template " + in.getName() + " : 1 or more ISIF or ISLOOP statement without </ISIF> or </ISLOOP> end tag.");
+            }
+
+            if (token_source.brackets != 0)
+            {
+                throw new ParseException("Error in template " + in.getName() + " : Check for lost opening or closing brackets (\"(\" or \")\").");
+            }
+
+            result.print(SCRIPTING_START);
+            result.print("printFooter(out);");
+            result.print(SCRIPTING_END);
+            result.flush();
+            return true;
+        }
+        catch (ParseException e)
+        {
+            throw new ISMLException(e.getMessage());
+        }
+        catch (TokenMgrError e)
+        {
+            throw new ISMLException(e.getMessage());
+        }
+        catch (IOException e)
+        {
+            throw new ISMLException(e.getMessage());
+        }
+    }
+}
+
+PARSER_END(ISMLtoJSPcompiler)
+
+TOKEN_MGR_DECLS :
+{
+    int previousState = DEFAULT;
+    int brackets = 0;
+}
+
+
+/* Tokens outside of tags */
+
+TOKEN :
+{
+      < INC_TAG       : "<!--#" ((~["-"])|("-" ~["-"])|("-" ("-")+ ~[">"]))* ("-")+ "->" >
+    | < JSP_TAG       : "<%" ((~["%"])|(("%")+ ~[">"]))* ("%")+ ">"             >
+
+    | < BEAN_TAG      : "<BEAN"        > : BEAN
+    | < SERVLET_TAG   : "<SERVLET"     > : SERVLET
+    | < EJB_TAG       : "<EJB"         > : EJB
+
+    | < ISCOMMENT     : ( "<ISCOMMENT>") | ("<!---") > : COMMENT
+    | < LOSTCOMMENT_END : ("</ISCOMMENT>") | ("--->") > : DEFAULT
+
+    | < ISBREAK       : ("<ISBREAK>") | ("<ISBREAK" (<TAG_SPACE>)? "/>") >
+    | < ISCACHE       : "<ISCACHE"     > : IS_TAG
+    | < ISCACHEKEY    : "<ISCACHEKEY"  > : IS_TAG
+    | < ISDICTIONARY  : "<ISDICTIONARY" > : IS_TAG
+    | < ISCONTENT     : "<ISCONTENT"   > : IS_TAG
+    | < ISCOOKIE      : "<ISCOOKIE"    > : IS_TAG
+    | < ISELSE        : ("<ISELSE>") | ("<ISELSE" (<TAG_SPACE>)? "/>") >
+    | < ISELSIF       : ("<ISELSIF") | ("<ISELSEIF") > : IS_TAG
+    | < ISIF          : "<ISIF"        > : IS_TAG
+    | < ISIF_END      : "</ISIF>"      >
+    | < CLOSING_ISELSE : "</ISELSE"     >
+    | < ISINCLUDE     : "<ISINCLUDE"   > : IS_TAG
+    | < ISLOOP        : "<ISLOOP"      > : IS_TAG
+    | < ISLOOP_END    : "</ISLOOP>"    >
+    | < ISFILEBUNDLE  : "<ISFILEBUNDLE" > : IS_TAG
+    | < ISFILEBUNDLE_END : "</ISFILEBUNDLE>" >
+    | < ISFORM        : "<ISFORM" > 	 : CUST_TAG
+    | < ISFORM_END    : "</ISFORM>" > 
+    | < ISFILE        : "<ISFILE"      > : IS_TAG    
+    | < ISRENDER      : "<ISRENDER"    > : CUST_TAG    
+    | < ISRENDER_END  : "</ISRENDER>"  >
+    | < ISMODULE      : "<ISMODULE"    > : IS_TAG
+    | < ISNEXT        : ("<ISNEXT>") | ("<ISNEXT" (<TAG_SPACE>)? "/>") >
+    | < ISPRINT       : "<ISPRINT"     > : IS_TAG
+    | < ISREDIRECT    : "<ISREDIRECT"  > : IS_TAG
+    | < ISSELECT      : "<ISSELECT"    > : IS_TAG
+    | < ISSET         : "<ISSET"       > : IS_TAG
+    | < ISBINARY      : "<ISBINARY"    > : IS_TAG
+    | < ISPIPELINE    : "<ISPIPELINE"  > : IS_TAG    
+    | < ISTEXT        : "<ISTEXT"      > : IS_TAG 
+    | < ISPLACEHOLDER : "<ISPLACEHOLDER"  > : IS_TAG
+    | < ISPLACEMENT   : "<ISPLACEMENT"  > : IS_TAG
+    | < ISPLACEMENT_END : "</ISPLACEMENT>"  >
+    | < ISX           : "<IS" (~[" ","\n","\r","\t","<","\"",">"])+ > : CUST_TAG
+    | < ISX_END       : "</IS" (~[" ","\n","\r","\t","<","\"",">"])+ > : CUST_TAG
+
+    | < IS_EXPRESSION  : "#"  > { previousState = DEFAULT; } : EXPRESSION
+    | < IS_EXP_PREVIEW : ("\"")?
+                         ([" ","\t","\n","\r"])+
+                         "preview"
+                         ([" ","\t","\n","\r"])*
+                         "="
+                         ([" ","\t","\n","\r"])*
+                         "\"" (~["\""])* "\""    >
+
+    | < POWER_HOOK      : "<HTML>"([" ","\t","\n","\r"])* "<HEAD>" >
+    | < NO_EXPRESSION_1 : ( "#" (["0"-"9","A"-"Z"])+ ([" ","\t","\n","\r"])* (["\"",">"]) ) >
+    | < NO_EXPRESSION_2 : ( "#" (["0"-"9","A"-"Z"])+ ([" ","\t","\n","\r"])+ (["0"-"9","A"-"Z"]) ) >
+    | < NO_EXPRESSION_3 : ( ("&#x" | "#") (["0"-"9","A"-"F"])+ ";" ) >
+    | < NO_EXPRESSION_4 : ( "\\\"#" (["0"-"9","A"-"F"])+ (";")? "\\\"" ) >
+    | < NO_EXPRESSION_5 : ( ("\"")? "#" (["0"-"9","A"-"Z"])+ ([" ","\t"])* "=") >
+    | < NO_EXPRESSION_6 : ( "#" (["0"-"9","A"-"F"])+ ([" ","\t","\n","\r"])* "}" ) >
+    | < NO_EXPRESSION_7 : ( "#" (["0"-"9","A"-"F"," ","\t","\n","\r"])* "&" ) >
+    | < CONTENT         : ( ~["#"] ) >
+}
+
+/* comment token */
+
+<COMMENT> TOKEN :
+{
+      < COMMENT_CONTENT : ((( ~["<","-"])+)|("<")|("-")) >
+    | < ISCOMMENT_END   : ("</ISCOMMENT>") | ("--->")    > : DEFAULT
+}
+
+/* === BEGIN SSS tokens === */
+
+/* bean token */
+
+<BEAN> TOKEN :
+{
+      < BEAN_CONTENT: ((( ~["<"])+)|("<")) >
+    | < BEAN_ETAG: "</BEAN>" > : DEFAULT
+}
+
+/* enterprice java bean token */
+
+<EJB> TOKEN :
+{
+      < EJB_CONTENT: ((( ~["<"])+)|("<")) >
+    | < EJB_ETAG: "</EJB>" > : DEFAULT
+}
+
+/* serlet token */
+
+<SERVLET> TOKEN :
+{
+      < SERVLET_CONTENT: ((( ~["<"])+)|("<")) >
+    | < SERVLET_ETAG: "</SERVLET>" > : DEFAULT
+
+}
+
+/* tokens for custom tag handling */
+
+<CUST_TAG> TOKEN :
+{
+      < CUST_ATT_NAME    : ["A"-"Z"] (["_","0"-"9","A"-"Z","-"])* (<CUST_SPACE>)?  >
+    | < CUST_ATT_VALUE1  : <CUST_ASSIGN> (<CUST_SPACE>)? <CUST_QUOTE> (~["\"","#"])* <CUST_QUOTE> >
+    | < CUST_ATT_VALUE2  : <CUST_ASSIGN> (<CUST_SPACE>)? (~["\"","#","="," ","\r","\n","\t"])+ >
+    | < CUST_SPACE       : ([" ","\r","\n","\t"])+ >
+    | < CUST_ASSIGN      : "=" >
+    | < CUST_END         : (<CUST_SPACE>)? ">" > : DEFAULT
+    | < CUST_QUOTE       : "\"" >
+    | < CUST_EXPR        : "#"   >    { previousState = CUST_TAG; } : EXPRESSION
+}
+
+<IS_TAG> TOKEN :
+{
+      < ATT_ATTRIBUTE  : "attribute"   (<TAG_SPACE>)? >
+    | < ATT_RETURNATTRIBUTE : "returnattribute"     (<TAG_SPACE>)? >
+    | < ATT_CHARSET    : "charset"     (<TAG_SPACE>)? >
+    | < ATT_COMMENT    : "comment"     (<TAG_SPACE>)? >
+    | < ATT_COMPACT    : "compact"     (<TAG_SPACE>)? >
+    | < ATT_TEMPLATEMARKER: "templatemarker" (<TAG_SPACE>)? >
+    | < ATT_CONDITION  : "condition"   (<TAG_SPACE>)? >
+    | < ATT_DESCRIPTION: "description" (<TAG_SPACE>)? >
+    | < ATT_DOMAIN     : "domain"      (<TAG_SPACE>)? >
+    | < ATT_EXTENSIONPOINT: "extensionpoint"      (<TAG_SPACE>)? >
+    | < ATT_HOUR       : "hour"        (<TAG_SPACE>)? >
+    | < ATT_LOCATION   : "location"    (<TAG_SPACE>)? >
+    | < ATT_HTTPSTATUS : "httpstatus"  (<TAG_SPACE>)? >
+    | < ATT_KEYWORD    : "keyword"     (<TAG_SPACE>)? >
+    | < ATT_OBJECT     : "object"      (<TAG_SPACE>)? >
+    | < ATT_MAXAGE     : "maxage"      (<TAG_SPACE>)? >
+    | < ATT_MINUTE     : "minute"      (<TAG_SPACE>)? >
+    | < ATT_NAME       : "name"        (<TAG_SPACE>)? >
+    | < ATT_PADDING    : "padding"     (<TAG_SPACE>)? >
+    | < ATT_PASSWORD   : "password"    (<TAG_SPACE>)? >
+    | < ATT_PATH       : "path"        (<TAG_SPACE>)? >
+    | < ATT_PERSONALIZED: "personalized" (<TAG_SPACE>)? >
+    | < ATT_SCOPE      : "scope"       (<TAG_SPACE>)? >
+    | < ATT_SOURCE     : "source"      (<TAG_SPACE>)? >
+    | < ATT_TEMPLATE   : "template"    (<TAG_SPACE>)? >
+    | < ATT_STRICT     : "strict"      (<TAG_SPACE>)? >
+    | < ATT_TYPE       : "type"        (<TAG_SPACE>)? >
+    | < ATT_URL        : "url"         (<TAG_SPACE>)? >
+    | < ATT_USERNAME   : "username"    (<TAG_SPACE>)? >
+    | < ATT_VALUE      : "value"       (<TAG_SPACE>)? >
+    | < ATT_VERSION    : "version"     (<TAG_SPACE>)? >
+    | < ATT_FILE       : "file"        (<TAG_SPACE>)? >
+    | < ATT_STREAM     : "stream"      (<TAG_SPACE>)? >
+    | < ATT_RESOURCE   : "resource"    (<TAG_SPACE>)? >
+    | < ATT_BYTES      : "bytes"       (<TAG_SPACE>)? >    
+    | < ATT_DOWNLOADNAME: "downloadname" (<TAG_SPACE>)? >
+    | < ATT_DICTIONARY : "dictionary"  (<TAG_SPACE>)? >
+    | < ATT_PIPELINE   : "pipeline"    (<TAG_SPACE>)? >
+    | < ATT_PARAMS     : "params"      (<TAG_SPACE>)? >
+    | < ATT_SYMBOLS    : "symbols"      (<TAG_SPACE>)? >
+    | < ATT_KEY        : "key"         (<TAG_SPACE>)? >
+    | < ATT_LOCALE     : "locale"      (<TAG_SPACE>)? >    
+    | < ATT_PARAMETER0     : "parameter0"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER1     : "parameter1"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER2     : "parameter2"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER3     : "parameter3"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER4     : "parameter4"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER5     : "parameter5"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER6     : "parameter6"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER7     : "parameter7"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER8     : "parameter8"      (<TAG_SPACE>)? >
+    | < ATT_PARAMETER9     : "parameter9"      (<TAG_SPACE>)? >
+    | < ATT_ID         : "id"          (<TAG_SPACE>)? >
+    | < ATT_PREPEND    : "prepend"     (<TAG_SPACE>)? >
+    | < ATT_SEPARATOR  : "separator"     (<TAG_SPACE>)? >
+    | < ATT_APPEND     : "append"     (<TAG_SPACE>)? >
+    | < ATT_PRESERVEORDER : "preserveorder"          (<TAG_SPACE>)? >
+    | < ATT_REMOVEDUPLICATES : "removeduplicates"          (<TAG_SPACE>)? >
+    | < ATT_PLACEHOLDERID : "placeholderid"          (<TAG_SPACE>)? >
+    | < ATT_PROCESSORS : "processors"          (<TAG_SPACE>)? >
+    
+    | < ATT_ALIAS      : "alias"       (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_COUNTER    : "counter"     (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_ENCODE     : "encoding"    (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_FORMAT     : "formatter"   (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_ITERATOR   : "iterator"    (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_MODE       : "mode"        (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_PREVIEW    : "preview"     (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_SECURE     : "secure"      (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_SESSION    : "session"     (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_STYLE      : "style"       (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_DISABLED   : "disabled"    (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    | < ATT_CLASS      : "class"       (<TAG_SPACE>)? <ASSIGN> (<TAG_SPACE>)? > : ATTVALUE
+    
+    | < ATT_VALUE1     : <ASSIGN> (<TAG_SPACE>)? <QUOTE> (~["\"","#"])* <QUOTE> >
+    | < ATT_VALUE2     : <ASSIGN> (<TAG_SPACE>)? (~["\"","#","="," ","\r","\n","\t",">","<"])+ >
+
+    | < TAG_SPACE      : ([" ","\r","\n","\t"])+ >
+    | < ASSIGN         : "=" >
+    | < END_TAG        : (<TAG_SPACE>)? ">" > : DEFAULT
+    | < EMPTY_ELEMENT_END_TAG: (<TAG_SPACE>)? "/>" > : DEFAULT
+    | < QUOTE          : "\"" >
+    | < ATT_EXPR       : "#"  >    { previousState = IS_TAG; } : EXPRESSION
+}
+
+<ATTVALUE> TOKEN :
+{
+      < VALUE_Q        : "\"" (~["\""])* "\"" > : IS_TAG
+    | < VALUE_N        : (~[" ","\r","\n","\t","\"",">","#","="])+ > : IS_TAG
+}
+
+<EXPRESSION> TOKEN:
+{
+    < BRACKET_OPEN: ("(") >{brackets++;}
+  | < BRACKET_CLOSE: (")") >{brackets--;}
+
+  | < JSP_EMBEDDED_EXPRESSION: "<%=" ((~["%"])|(("%")+ ~[">"]))* "%>" >
+  | < JSP_EMBEDDED_EL: "${" (~["}"])* "}" >
+  
+  | < ADD: ("+") >
+  | < SUB: ("-") >
+  | < MUL: ("*") >
+  | < DIV: ("/") >
+  | < MOD: ("%") >
+
+  | < I_EG: ("==") >
+  | < I_NE: ("!=") >
+  | < I_GE: (">=") >
+  | < I_LE: ("<=") >
+  | < I_GT: (">") >
+  | < I_LT: ("<") >
+
+  | < CAT: (".") >
+
+  | < EQ: ("EQ") >
+  | < NE: ("NE") >
+
+  | < AND: ("AND") >
+  | < OR: ("OR") >
+  | < NOT: ("NOT") >
+
+  | < F1:  ("hasLoopElements")|("hasElements") >
+  | < F2:  ("isSSSenabled") >
+  | < F3:  ("getHeader") >
+  | < F4:  ("getValue") >
+  | < F5:  ("URL") >
+  | < F6:  ("URLEx") >
+  | < F7:  ("Action") >
+  | < F8:  ("Parameter") >
+  | < F9:  ("WebRoot") >
+  | < F10: ("isDefined") >
+  | < F11: ("stringToHtml") >
+  | < F12: ("pad") >
+  | < F13: ("stringToXml") >
+  | < F14: ("trim") >
+  | < F15: ("lcase") >
+  | < F16: ("ucase") >
+  | < F17: ("len") >
+  | < F18: ("val") >
+  | < F19: ("getCookie") >
+  | < F20: ("Servlet") >
+  | < F21: ("ContentURL") >
+  | < F22: ("Service") >
+  | < F25: ("sessionlessURL") >
+  | < F26: ("sessionlessURLEx") >
+  | < F27: ("pipeline") >
+  | < F34: ("hasNext") >
+  | < F35: ("replace") >
+  | < F36: ("split") >
+  | < F37: ("existsTemplate") >
+  | < F38: ("WebRootEx") >
+  | < F39: ("ContentURLEx") >
+  | < F40: ("ParamMap") >
+  | < F41: ("ParamEntry") >
+  | < F42: ("getTemplateSourceLocation") >
+  | < F43: ("localizeText") >
+  | < F44: ("localizeTextEx") >
+  | < F45: ("ParameterList") >
+  | < F46: ("encodeValue") >
+  | < EXP_STOP:  ("#")   > { SwitchTo(previousState); }
+  | < STRING_SINGLEQUOTED:  "\'"
+                            ( ("\\" (~["\'"]))
+                             |("\\\'")
+                             |(~["\'","\\"])
+                             |("\'\'")
+                            )*
+                            "\'" >
+  | < STRING_DOUBLEQUOTED: "\""
+                            ( ("\\" (~["\""]))
+                             |("\\\"")
+                             |(~["\"","\\"])
+                             |("\"\"")
+                            )*
+                            "\"" >
+
+  | < DOUBLE:   (["0"-"9"])+ "." (["0"-"9"])* ( "e" (["+","-"])? (["0"-"9"])+)?
+              | "." (["0"-"9"])+ ( "e" (["+","-"])? (["0"-"9"])+)?
+              | (["0"-"9"])+ ( "e" (["+","-"])? (["0"-"9"])+)? >
+
+  | < COLON: ":" >
+  | < COMMA: "," >
+  | < VARNAME: ["A"-"Z"] (["_","0"-"9","A"-"Z"])* >
+}
+
+<EXPRESSION> SKIP : { " " | "\t" | "\n" | "\r" }
+
+<SKIPPER> TOKEN :
+{
+      < ALL : ((~["0"])|(["0"])) >
+}
+
+/* Main production rule */
+
+void specification(CompactingWriter result, List<Token> nestingTable) throws IOException :
+{
+   Token token = null;
+   boolean previewAttributeRemoveFlag = false;
+}
+{
+    (   ( token = <POWER_HOOK>)
+        {
+            result.print(token);
+            result.print(SCRIPTING_START);
+            result.print("insertIntershopSignature(request,(com.intershop.beehive.core.capi.request.ServletResponse)response);");
+            result.print(SCRIPTING_END);
+        }
+      | (stuff(result))
+        {
+            previewAttributeRemoveFlag = false;
+        }
+      | (sss(result))
+        { previewAttributeRemoveFlag = false; }
+      | (isTag(result, nestingTable))
+        { previewAttributeRemoveFlag = false; }
+      | (   (token = <IS_EXPRESSION>)
+            {
+                startline = token.beginLine;
+                startcolumn = token.beginColumn;
+            }
+            previewAttributeRemoveFlag = outExpression(result)
+        )
+      | (token = <IS_EXP_PREVIEW>)
+        {
+            if (!previewAttributeRemoveFlag)
+            {
+                // print usual HTML content
+                result.print(token);
+            }
+            else if (token.toString().charAt(0) == '\"')
+            {
+                result.print("\"");
+            }
+            previewAttributeRemoveFlag = false;
+        }
+      | ( <ISCOMMENT> (<COMMENT_CONTENT>)* <ISCOMMENT_END> )
+        {
+            /* comment handling */
+        }
+      | ( <LOSTCOMMENT_END> )
+        {
+            throw new ParseException("Error in template " + in.getName() + " : Check comment usage, nesting is not allowed and there must be a starting \"<ISCOMMENT>\" (or \"<!---\") for a closing \"</ISCOMMENT>\" ( or \"--->\").");
+        }
+      | ( <CLOSING_ISELSE> )
+        {
+            throw new ParseException("Error in template " + in.getName() + " : Unexpected token </ISELSE> encountered!");
+        }        
+    )*
+}
+
+/* rule for ISML expressions outside ISML tags */
+
+boolean outExpression(CompactingWriter result) throws IOException :
+{
+    StringBuilder buffer = new StringBuilder();
+}
+{
+    try
+    {
+        (is_expression(buffer) <EXP_STOP> )
+        {
+            result.print(INLINE_SCRIPTING_START);
+            result.print("context.getFormattedValue(" + buffer + ",null)");
+            result.print(INLINE_SCRIPTING_END);
+            return true;
+        }
+    }
+    catch (ParseException e)
+    {
+        /* this is a workaround for single #'s (as in color codes) */
+        /* if is_expression fails the input stream is parsed again */
+        /* from the beginning to process all tokens after the '#' */
+        /* with scope default */
+        if (e.getMessage().indexOf('#') < 0)
+        {
+            throw new ParseException("Error in template " + in.getName() + " : " + e.getMessage());
+        }
+
+        try
+        {
+            InputStream ins = inStream;
+            if (ins != null && ins.markSupported())
+            {
+            	ins.reset();
+            }
+            else
+            {
+               ins = new BufferedInputStream(new FileInputStream(in), ISMLTemplateConstants.DEFAULT_TEMPLATE_BUFFERSIZE);
+            }
+            this.ReInit(ins);
+                
+            token_source.SwitchTo(SKIPPER);
+            Token skipperToken = getNextToken();
+            while (  (skipperToken.beginLine<startline)
+                   ||(  (skipperToken.beginLine==startline)
+                      &&(skipperToken.beginColumn<startcolumn)))
+            {
+                skipperToken = getNextToken();
+            }
+            token_source.SwitchTo(DEFAULT);
+            result.print("#");
+            return false;
+        }
+        catch (Exception e1)
+        {
+            throw new ParseException("Error in template " + in.getName() + " : " + e1.getMessage());
+        }
+    }
+    catch (TokenMgrError e)
+    {
+        if (e.getMessage().indexOf('#') < 0)
+        {
+            throw new ParseException("Error in template " + in.getName() + " : " + e.getMessage());
+        }
+
+        try
+        {
+            InputStream ins = inStream;
+            if (ins != null && ins.markSupported())
+            {
+            	ins.reset();
+            }
+            else
+            {
+               ins = new BufferedInputStream(new FileInputStream(in), ISMLTemplateConstants.DEFAULT_TEMPLATE_BUFFERSIZE);
+            }
+            this.ReInit(ins);
+
+            token_source.SwitchTo(SKIPPER);
+            Token skipperToken = getNextToken();
+            while (  (skipperToken.beginLine<startline)
+                   ||(  (skipperToken.beginLine==startline)
+                      &&(skipperToken.beginColumn<startcolumn)))
+            {
+                skipperToken = getNextToken();
+            }
+            token_source.SwitchTo(DEFAULT);
+            result.print("#");
+            return false;
+        }
+        catch (Exception e1)
+        {
+            throw new ParseException("Error in template " + in.getName() + " : " + e1.getMessage());
+        }
+    }
+}
+
+/* rule for non - ISML relevant content
+   Note: <NO_EXPRESSION_1> & <NO_EXPRESSION_2>
+         are just a workarounds for the "single #'s" -
+         workaround to speed up template processing significantly
+         <NO_EXPRESSION_3> is a special case for CSS color codes
+         <NO_EXPRESSION_4> is for color codes enclosed in escaped double quotes */
+
+void stuff(CompactingWriter result) throws IOException :
+{
+    Token stuff;
+}
+{
+    ( stuff=<CONTENT>
+     |stuff=<NO_EXPRESSION_1>
+     |stuff=<NO_EXPRESSION_2>
+     |stuff=<NO_EXPRESSION_3>
+     |stuff=<NO_EXPRESSION_4>
+     |stuff=<NO_EXPRESSION_5>
+     |stuff=<NO_EXPRESSION_6>
+     |stuff=<NO_EXPRESSION_7>)
+    {
+        // print usual HTML content
+        result.printCompact(stuff);
+    }
+}
+
+/**
+ * Server side scripting rules
+ **/
+
+void sss(CompactingWriter result) throws IOException :
+{
+    Token stuff;
+}
+{
+    (   (  stuff = <INC_TAG> | stuff = <JSP_TAG> )
+        {
+            if (isSSSenabled) { result.print(stuff); }
+        }
+      | beanTag(result)
+      | servletTag(result)
+      | ejbTag(result)
+    )
+}
+
+void beanTag(CompactingWriter result) throws IOException :
+{
+    Token stuff;
+}
+{   ( stuff = <BEAN_TAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+    (   (stuff = <BEAN_CONTENT>)
+        {
+            if (isSSSenabled) { result.print(stuff); }
+        }
+    )*
+    ( stuff = <BEAN_ETAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+}
+
+void servletTag(CompactingWriter result) throws IOException :
+{
+    Token stuff;
+}
+{   ( stuff = <SERVLET_TAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+    (   (stuff = <SERVLET_CONTENT>)
+        {
+            if (isSSSenabled) { result.print(stuff); }
+        }
+    )*
+    ( stuff = <SERVLET_ETAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+}
+
+void ejbTag(CompactingWriter result) throws IOException :
+{
+    Token stuff;
+}
+{   ( stuff = <EJB_TAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+    (   (stuff = <EJB_CONTENT>)
+        {
+            if (isSSSenabled) { result.print(stuff); }
+        }
+    )*
+    ( stuff = <EJB_ETAG> )
+    {
+        if (isSSSenabled) { result.print(stuff); }
+    }
+}
+
+/**
+ * ISML tag rule
+ */
+
+void isTag(CompactingWriter result, List<Token> nestingTable) :
+{
+    /**
+     * the tag factory - map tags to Server Side Scripting
+     */
+    Token tag = null;
+    HashMap<String,Object> attributes = new HashMap<String,Object>();
+}
+{
+    (   (       tag=<ISIF_END>         | tag=<ISLOOP_END>
+              | tag=<ISBREAK>          | tag=<ISNEXT>
+              | tag=<ISELSE>           | tag=<ISPLACEMENT_END>
+              | tag=<ISFILEBUNDLE_END> | tag=<ISRENDER_END>
+              | tag=<ISFORM_END>
+        )
+      | (   (   tag=<ISMODULE> )
+            ( (<TAG_SPACE> tagAttribute2(attributes, ATT_ATTRIBUTE, ATT_RETURNATTRIBUTE))+ (<END_TAG> | <EMPTY_ELEMENT_END_TAG>) )
+        )      
+      | (   (   tag=<ISPRINT>     | tag=<ISSET>       | tag=<ISELSIF>     | tag=<ISCACHE>
+              | tag=<ISCONTENT>   | tag=<ISREDIRECT>  | tag=<ISDICTIONARY>
+              | tag=<ISINCLUDE>   | tag=<ISCOOKIE>    | tag=<ISCACHEKEY>  | tag=<ISSELECT>
+              | tag=<ISBINARY>    | tag=<ISPIPELINE>  | tag=<ISTEXT>      | tag=<ISPLACEHOLDER>
+              | tag=<ISPLACEMENT> | tag=<ISFILE>
+            )
+            ( (<TAG_SPACE> tagAttribute(attributes))+ (<END_TAG> | <EMPTY_ELEMENT_END_TAG>) )
+        )      
+      | (   (   tag=<ISLOOP> | tag=<ISIF> | tag=<ISFILEBUNDLE>
+            )
+            ( (<TAG_SPACE> tagAttribute(attributes))+ <END_TAG> )
+        )
+      | (   (   tag=<ISX> | tag=<ISRENDER>
+            )
+            ( (<CUST_SPACE> customAttribute(attributes))* <CUST_END> )
+        )
+      | (   (   tag=<ISFORM>
+            )
+            ( (<CUST_SPACE> formAttribute(attributes))* <CUST_END> )
+        )
+      | ( tag=<ISX_END> <CUST_END> )
+    )
+    {
+        ISMLTagCompiler.compileTag(tag, result, attributes, nestingTable);
+    }
+}
+
+/**
+ * ISML tag attribute rules
+ **/
+
+void tagAttribute(HashMap<String,Object> attributes) : {}
+{
+	{tagAttribute2(attributes, -1, -1);}
+}
+
+
+void tagAttribute2(HashMap<String,Object> attributes, int multiValueAttr1, int multiValueAttr2) :
+{
+    /**
+     * the attribute factory - parses tag-attributes
+     */
+
+   Token name=null,value=null;
+   String buf;
+   StringBuilder buffer1 = new StringBuilder();
+}
+{
+    (   (   (   name=<ATT_ATTRIBUTE>    | name=<ATT_COMMENT>    | name=<ATT_COMPACT>
+              | name=<ATT_CONDITION>    | name=<ATT_DESCRIPTION>| name=<ATT_DOMAIN>
+              | name=<ATT_HOUR>         | name=<ATT_LOCATION>   | name=<ATT_MAXAGE>
+              | name=<ATT_MINUTE>       | name=<ATT_NAME>       | name=<ATT_PADDING>
+              | name=<ATT_PASSWORD>     | name=<ATT_PATH>       | name=<ATT_TEMPLATE>
+              | name=<ATT_TYPE>         | name=<ATT_URL>        | name=<ATT_USERNAME>
+              | name=<ATT_VALUE>        | name=<ATT_VERSION>    | name=<ATT_CHARSET>
+              | name=<ATT_PERSONALIZED> | name=<ATT_KEYWORD>    | name=<ATT_SOURCE>
+              | name=<ATT_SCOPE>        | name=<ATT_FILE>       | name=<ATT_STREAM>
+              | name=<ATT_RESOURCE>     | name=<ATT_BYTES>      | name=<ATT_DOWNLOADNAME>
+              | name=<ATT_DICTIONARY>   | name=<ATT_PIPELINE>   | name=<ATT_PARAMS>
+              | name=<ATT_STRICT>       | name=<ATT_SYMBOLS>    | name=<ATT_RETURNATTRIBUTE>
+              | name=<ATT_KEY>          | name=<ATT_PARAMETER0> | name=<ATT_PARAMETER1>
+              | name=<ATT_PARAMETER2>   | name=<ATT_PARAMETER3> | name=<ATT_PARAMETER4>
+              | name=<ATT_PARAMETER5>   | name=<ATT_PARAMETER6> | name=<ATT_PARAMETER7>
+              | name=<ATT_PARAMETER8>   | name=<ATT_PARAMETER9> | name=<ATT_LOCALE>
+              | name=<ATT_ID>           | name=<ATT_PREPEND>    | name=<ATT_SEPARATOR>
+              | name=<ATT_APPEND>       | name=<ATT_PRESERVEORDER> | name=<ATT_EXTENSIONPOINT>
+              | name=<ATT_REMOVEDUPLICATES> | name=<ATT_PLACEHOLDERID> | name=<ATT_OBJECT>
+              | name=<ATT_TEMPLATEMARKER>   | name=<ATT_PROCESSORS> | name=<ATT_HTTPSTATUS>
+            )
+            (   (   <ASSIGN> (<TAG_SPACE>)?
+                    (   ( <QUOTE> <ATT_EXPR> (is_expression(buffer1)) <EXP_STOP> <QUOTE> )
+                      | (         <ATT_EXPR> (is_expression(buffer1)) <EXP_STOP>         )
+                    )
+                )
+                {
+                    storeAttribute(attributes, '#' + String.valueOf(name.kind),buffer1.toString(),name.kind==multiValueAttr1 || name.kind==multiValueAttr2);
+                }
+              | ( value=<ATT_VALUE1> | value=<ATT_VALUE2> )
+                {
+                    String realValue = value.toString();
+                    realValue = realValue.substring(1).trim();
+                    if (value.kind == ATT_VALUE1)
+                    {
+                        storeAttribute(attributes, String.valueOf(name.kind),
+                                       realValue.substring(1,realValue.length()-1), name.kind==multiValueAttr1 || name.kind==multiValueAttr2);
+                    }
+                    else
+                    {
+                        storeAttribute(attributes, String.valueOf(name.kind),realValue, name.kind==multiValueAttr1 || name.kind==multiValueAttr2);
+                    }
+                }
+            )
+        )
+      | (   (   name=<ATT_ALIAS>    | name=<ATT_ENCODE>  | name=<ATT_FORMAT>
+              | name=<ATT_MODE>     | name=<ATT_PREVIEW> | name=<ATT_ITERATOR>
+              | name=<ATT_SECURE>   | name=<ATT_SESSION> | name=<ATT_STYLE>
+              | name=<ATT_COUNTER>  | name=<ATT_DISABLED>| name=<ATT_CLASS>
+            )
+            (value=<VALUE_Q>|value=<VALUE_N>)
+        )
+        {
+            buf = value.toString();
+            if (value.kind==VALUE_Q)
+            {
+                buf = buf.substring(1,buf.length()-1);
+            }
+            storeAttribute(attributes, String.valueOf(name.kind),buf, name.kind==multiValueAttr1 || name.kind==multiValueAttr2);
+        }
+    )
+}
+
+void storeAttribute(HashMap<String,Object> attributes, String name, String value, boolean isMultivalue) : {}
+{
+	{
+		if (!isMultivalue)
+		{
+			attributes.put(name, value);
+		}
+		else
+		{
+			@SuppressWarnings("unchecked")
+			ArrayList<String> v = (ArrayList<String>)attributes.get(name);
+			if (v == null)
+			{
+				v = new ArrayList<String>();
+				attributes.put(name, v);
+			}
+			v.add(value);
+		}
+    }
+}
+
+/**
+ * ISML form tag attribute rule
+ **/
+
+void formAttribute(HashMap<String,Object> attributes) :
+{
+    /**
+     * the attribute factory - parses tag-attributes
+     */
+
+   Token name=null,value=null;
+   StringBuilder buffer1 = new StringBuilder();
+}
+{
+    (   name=<CUST_ATT_NAME>
+       (    (   <CUST_ASSIGN> (<CUST_SPACE>)?
+                (
+                    ( <CUST_QUOTE> <CUST_EXPR> (is_expression(buffer1)) <EXP_STOP> <CUST_QUOTE> )
+                  | (              <CUST_EXPR> (is_expression(buffer1)) <EXP_STOP>              )
+                )
+            )
+            {
+                attributes.put('#' + name.toString().trim(),buffer1);
+            }
+          | ( value=<CUST_ATT_VALUE1> | value=<CUST_ATT_VALUE2> )
+            {
+                String realValue = value.toString();
+                realValue = realValue.substring(1).trim();
+                if (value.kind == CUST_ATT_VALUE1)
+                {
+                    attributes.put(name.toString().trim(),
+                                   realValue.substring(1,realValue.length()-1));
+                }
+                else
+                {
+                    attributes.put(name.toString().trim(),realValue);
+                }
+            }
+        )
+    )
+}
+
+/**
+ * ISML custom tag attribute rule
+ **/
+
+void customAttribute(HashMap<String,Object> attributes) :
+{
+    /**
+     * the attribute factory - parses tag-attributes
+     */
+
+   Token name=null,value=null;
+   StringBuilder buffer1 = new StringBuilder();
+}
+{
+    (   name=<CUST_ATT_NAME>
+       (    (   <CUST_ASSIGN> (<CUST_SPACE>)?
+                (
+                    ( <CUST_QUOTE> <CUST_EXPR> (is_expression(buffer1)) <EXP_STOP> <CUST_QUOTE> )
+                  | (              <CUST_EXPR> (is_expression(buffer1)) <EXP_STOP>              )
+                )
+            )
+            {
+                attributes.put(name.toString().trim(),buffer1);
+            }
+          | ( value=<CUST_ATT_VALUE1> | value=<CUST_ATT_VALUE2> )
+            {
+                String realValue = value.toString();
+                realValue = realValue.substring(1).trim();
+                if (value.kind == CUST_ATT_VALUE1)
+                {
+                    attributes.put(name.toString().trim(),
+                                   realValue.substring(1,realValue.length()-1));
+                }
+                else
+                {
+                    attributes.put(name.toString().trim(),realValue);
+                }
+            }
+        )
+    )
+}
+
+/*
+ * ISML Action syntax rule
+ */
+
+void is_action(StringBuilder jsp_buffer) :
+{
+    StringBuilder buffer = new StringBuilder();
+}
+{
+    (   (   (<F7><BRACKET_OPEN>)
+            {
+                // start Method
+                jsp_buffer.append("(new URLPipelineAction(");
+            }
+            [   (is_expression(buffer))
+                {
+                // parameter action
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+                }
+                [   (<COMMA> is_expression(buffer))
+                {
+                    // parameter server group
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+                    [   (<COMMA> is_expression(buffer))
+                        {
+                        // parameter domain
+                        jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                        buffer.setLength(0);
+                        }
+                        [   (<COMMA> is_expression(buffer))
+                        {
+                            // parameter locale
+                            jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                            buffer.setLength(0);
+                        }
+                            [   (<COMMA> is_expression(buffer))
+                                {
+                                // parameter currency
+                                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                                buffer.setLength(0);
+                                }
+                                [   (<COMMA> is_expression(buffer))
+                                    {
+                                    // parameter appID
+                                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                                    }
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append("))");
+            }
+        )
+    )
+    |
+    (
+        (   (<F20><BRACKET_OPEN>)
+            {
+                // start Method
+                jsp_buffer.append("(new URLServletAction(");
+            }
+            [   (is_expression(buffer))
+                {
+                // parameter servlet name
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+                }
+                [   (<COMMA> is_expression(buffer))
+                {
+                    // parameter server group
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+                ]
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append("))");
+            }
+        )
+    )
+    |
+    (
+      	(   (<F22><BRACKET_OPEN>)
+            {
+                // start Method
+                jsp_buffer.append("(new URLServiceAction(");
+}
+            [   (is_expression(buffer))
+                {
+                // parameter action
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+                }
+                [   (<COMMA> is_expression(buffer))
+                {
+                    // parameter server group
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+                    [   (<COMMA> is_expression(buffer))
+                        {
+                        // parameter domain
+                        jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                        buffer.setLength(0);
+                        }
+                        [   (<COMMA> is_expression(buffer))
+                        {
+                            // parameter locale
+                            jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                            buffer.setLength(0);
+                        }
+                            [   (<COMMA> is_expression(buffer))
+                                {
+                                // parameter currency
+                                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                                buffer.setLength(0);
+                                }
+                                [   (<COMMA> is_expression(buffer))
+                                    {
+                                    // parameter appID
+                                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                                    }
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append("))");
+            }
+        )
+    )
+}
+
+
+/*
+ * ISML expression syntax rule
+ */
+
+void is_expression(StringBuilder jsp_buffer) :
+{
+    StringBuilder buffer2 = new StringBuilder();
+    boolean flag = true;
+}
+{
+    (   (   <NOT>
+            operator(buffer2)
+            [flag = boolean_expr(jsp_buffer,buffer2,true) ]
+        )
+        {
+            if (flag)
+            {
+                /* special handling of case (NOT operator()) */
+                jsp_buffer.append("(((Boolean) " + buffer2 + ").booleanValue() ? Boolean.FALSE : Boolean.TRUE) ");
+            }
+        }
+      | (   operator(buffer2)
+            [   flag = arithmetic_comp(jsp_buffer,buffer2)
+              | flag = string_comp(jsp_buffer,buffer2)
+              | flag = boolean_expr(jsp_buffer,buffer2,false)
+              | flag = arithmetic_expr(jsp_buffer,buffer2)
+              | flag = string_expr(jsp_buffer,buffer2)
+            ]
+            {
+                if (flag)
+                {
+                    /* special handling if expression is just a single operator */
+                    jsp_buffer.append(buffer2.toString());
+                }
+            }
+        )
+    )
+}
+
+/* addition to ISML expression syntax rule */
+
+void operator(StringBuilder jsp_buffer) :
+{ }
+{
+    (LOOKAHEAD(3)   function(jsp_buffer)
+                  | jsp_embedded_expression(jsp_buffer)
+                  | jsp_embedded_el(jsp_buffer)
+                  | var(jsp_buffer)
+                  | constant(jsp_buffer)
+                  | bracket(jsp_buffer)
+    )
+}
+
+/* rule for arithmetic comparisation operations */
+
+boolean arithmetic_comp(StringBuilder jsp_buffer,StringBuilder buffer2) :
+{
+    Token op = null;
+}
+{
+    (   ( op = <I_EG> | op = <I_NE> | op = <I_GE> | op = <I_LE> | op = <I_GT> | op = <I_LT> )
+        {
+            jsp_buffer.append("((");
+            /* String to double conversions not supported yet
+                jsp_buffer.append(" ((("+buffer2+")instanceof Number)?
+                jsp_buffer.append("(((Number) " + buffer2 + ").doubleValue()):");
+                jsp_buffer.append("((new Double(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
+            */
+            jsp_buffer.append(" ((Number) " + buffer2 + ").doubleValue() " + op.toString());
+             /* clearbuffer */
+            buffer2.setLength(0);
+        }
+        operator(buffer2)
+    )
+    {
+        jsp_buffer.append("((Number)("+buffer2+")).doubleValue()) ? Boolean.TRUE : Boolean.FALSE)");
+        return false; /* more than one operator */
+    }
+}
+
+/* rule for string comparisation operations */
+
+boolean string_comp(StringBuilder jsp_buffer,StringBuilder buffer2) :
+{
+    Token op = null;
+}
+{
+    (   ( op = <EQ> | op = <NE> )
+        {
+            jsp_buffer.append("((");
+            if (op.kind==NE)
+            {
+                jsp_buffer.append("!");
+            }
+            jsp_buffer.append("(context.getFormattedValue(" + buffer2 + ",null).equals(context.getFormattedValue(");
+             /* clearbuffer */
+            buffer2.setLength(0);
+        }
+        operator(buffer2)
+    )
+    {
+        jsp_buffer.append(buffer2 + ",null)))) ? Boolean.TRUE : Boolean.FALSE)");
+        return false; /* more than one operator */
+    }
+}
+
+/* rule for arithmetic operations */
+
+boolean arithmetic_expr(StringBuilder jsp_buffer,StringBuilder buffer2) :
+{
+    int i = 0;
+    Token op = null;
+}
+{
+    (   ( op = <ADD> | op = <SUB> | op = <MUL> | op = <DIV> | op = <MOD>)
+        {
+            if (i==0)
+            {
+                jsp_buffer.append("(new Double(");
+            }
+            /* String to double conversions not supported yet
+                jsp_buffer.append(" ((("+buffer2+")instanceof Number)?
+                jsp_buffer.append("(((Number) " + buffer2 + ").doubleValue()):");
+                jsp_buffer.append("((new Double(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
+            */
+            jsp_buffer.append(" ((Number) " + buffer2 + ").doubleValue() " + op.toString());
+            buffer2.setLength(0);
+            i++;
+        }
+        operator(buffer2)
+    )+
+    {
+        jsp_buffer.append("((Number) " + buffer2 + ").doubleValue()))");
+        return false; /* more than one operator */
+    }
+}
+
+/* rule for string operations */
+
+boolean string_expr(StringBuilder jsp_buffer,StringBuilder buffer2) :
+{ }
+{
+    (   <CAT>
+        {
+            jsp_buffer.append("context.getFormattedValue(" + buffer2 + ",null) + ");
+            buffer2.setLength(0);
+        }
+        operator(buffer2)
+    )+
+    {
+        jsp_buffer.append("context.getFormattedValue(" + buffer2 + ",null)");
+        return false; /* more than one operator */
+    }
+}
+
+/* rule for boolean operations */
+
+boolean boolean_expr(StringBuilder jsp_buffer,StringBuilder buffer2,boolean notSwitch) :
+{
+    int i = 0;
+    Token op = null;
+}
+{
+    (   ( op = <AND> | op = <OR> )
+        {
+            if (i==0)
+            {
+                jsp_buffer.append("((");
+            }
+            if (notSwitch)
+            {
+                jsp_buffer.append("!");
+            }
+            jsp_buffer.append("((Boolean) " + buffer2 + ").booleanValue() ");
+            jsp_buffer.append((op.kind==AND)?"&& ":"|| ");
+             /* clearbuffer */
+            buffer2.setLength(0);
+            notSwitch = false;
+            i=1;
+        }
+        [   (   <NOT>   )
+            {   notSwitch = true;   }
+        ]
+        operator(buffer2)
+    )+
+    {
+        if (notSwitch)
+        {
+            jsp_buffer.append("!");
+        }
+        jsp_buffer.append("((Boolean) " + buffer2 + ").booleanValue()) ? Boolean.TRUE : Boolean.FALSE)");
+        return false; /* more than one operator */
+    }
+}
+
+/* rule for paranthising */
+
+void bracket(StringBuilder jsp_buffer) :
+{}
+{
+    (<BRACKET_OPEN>)
+    {
+        jsp_buffer.append("(");
+    }
+    (is_expression(jsp_buffer)<BRACKET_CLOSE>)
+    {
+        jsp_buffer.append(")");
+    }
+}
+
+/* rules for ISML expression constants */
+
+void constant(StringBuilder jsp_buffer) :
+{ }
+{
+    stringConstant(jsp_buffer)
+  | numberConstant(jsp_buffer)
+}
+
+void stringConstant(StringBuilder jsp_buffer) :
+{
+    Token value = null;
+}
+{
+    (value=<STRING_SINGLEQUOTED> | value =<STRING_DOUBLEQUOTED>)
+    {
+        boolean hasPreviousSlash = false;
+        boolean hasPreviousQuote = false;
+        char currentChar;
+        String stringValue = value.toString();
+
+        jsp_buffer.append('\"');
+
+        for (int i=1; i<(stringValue.length()-1); i++)
+        {
+            currentChar = stringValue.charAt(i);
+
+            // handling of special characters
+            switch (currentChar)
+            {
+                case '\\':
+                    hasPreviousSlash = !hasPreviousSlash;
+                    jsp_buffer.append('\\');
+                    break;
+                case 'd':
+                    if (hasPreviousSlash)
+                    {
+                        jsp_buffer.append('\"');
+                        hasPreviousSlash = false;
+                    }
+                    else
+                    {
+                        jsp_buffer.append('d');
+                    }
+                    break;
+                case 's':
+                    if (hasPreviousSlash)
+                    {
+                        jsp_buffer.append('\'');
+                        hasPreviousSlash = false;
+                    }
+                    else
+                    {
+                        jsp_buffer.append('s');
+                    }
+                    break;
+                case '\'':
+                    if (value.kind == STRING_SINGLEQUOTED)
+                    {
+                        if (hasPreviousQuote)
+                        {
+                            jsp_buffer.append('\\');
+                            jsp_buffer.append('\'');
+                            hasPreviousQuote = false;
+                        }
+                        else if (hasPreviousSlash)
+                        {
+                            jsp_buffer.append('\'');
+                            hasPreviousSlash = false;
+                        }
+                        else
+                        {
+                            hasPreviousQuote = true;
+                        }
+                    }
+                    else
+                    {
+                        if (hasPreviousSlash)
+                        {
+                            jsp_buffer.append('\'');
+                            hasPreviousSlash = false;
+                        }
+                        else
+                        {
+                            jsp_buffer.append('\\');
+                            jsp_buffer.append('\'');
+                        }
+                    }
+                    break;
+                case '\"':
+                    if (value.kind == STRING_DOUBLEQUOTED)
+                    {
+                        if (hasPreviousQuote)
+                        {
+                            jsp_buffer.append('\\');
+                            jsp_buffer.append('\"');
+                            hasPreviousQuote = false;
+                        }
+                        else if (hasPreviousSlash)
+                        {
+                            jsp_buffer.append('\"');
+                            hasPreviousSlash = false;
+                        }
+                        else
+                        {
+                            hasPreviousQuote = true;
+                        }
+                    }
+                    else
+                    {
+                        if (hasPreviousSlash)
+                        {
+                            jsp_buffer.append('\"');
+                            hasPreviousSlash = false;
+                        }
+                        else
+                        {
+                            jsp_buffer.append('\\');
+                            jsp_buffer.append('\"');
+                        }
+                    }
+                    break;
+                default:
+                    jsp_buffer.append(currentChar);
+                    hasPreviousSlash = false;
+                    hasPreviousQuote = false;
+            }
+        }
+        jsp_buffer.append('\"');
+    }
+}
+
+void numberConstant(StringBuilder jsp_buffer) :
+{
+    Token value = null;
+    Token sign  = null;
+}
+{
+    [sign=<ADD>|sign=<SUB>] value=<DOUBLE>
+    {
+        if (sign==null)
+        {
+            jsp_buffer.append("new Double(" + value + ")");
+        }
+        else
+        {
+            jsp_buffer.append("new Double(" + sign + value + ")");
+        }
+    }
+}
+
+/* rule for ISML expression functions */
+
+void function(StringBuilder jsp_buffer) :
+{
+    Token value = null;
+    StringBuilder buffer = null;
+    boolean flag = false;
+}
+{
+    (
+        (   ( <F1> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("(hasLoopElements(\"");
+            }
+            ( var_name(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append("\") ? Boolean.TRUE : Boolean.FALSE)");
+            }
+        )
+      | (<F2> <BRACKET_OPEN> <BRACKET_CLOSE>)
+        {
+            jsp_buffer.append("isSSSenabled()");
+        }
+      | (   ( <F3> <BRACKET_OPEN> )
+            {
+                // getHeader
+                jsp_buffer.append("(request.getHeader(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null)))");
+            }
+        )
+      | (   ( <F4> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("context.getFormattedValue(");
+                value = null;
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(',');
+            }
+            [   (<COMMA>)
+                [   stringConstant(jsp_buffer)
+                    {
+                        flag =true;
+                    }
+                  | (value=varName())
+                    {
+                        jsp_buffer.append("new Integer(");
+                        jsp_buffer.append(value.toString());
+                        jsp_buffer.append(')');
+                        flag =true;
+                    }
+                ]
+                [   (<COMMA>)
+                    {
+                        jsp_buffer.append(',');
+                    }
+                    [   stringConstant(jsp_buffer)
+                        {
+                             flag =true;
+                        }
+                    ]
+                ]    
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                if (!flag)
+                {
+                    jsp_buffer.append("null");
+                }
+                jsp_buffer.append(')');
+            }
+        )
+      | (   (<F5><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(true,");
+
+                buffer = new StringBuilder();
+            }
+            (is_action(jsp_buffer))
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(",(new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | LOOKAHEAD(3) ((<F27><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("executePipeline(");
+
+                buffer = new StringBuilder();
+            }
+            (stringConstant(jsp_buffer))
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(",(new URLParameterSet().addURLParameter(new URLParameter(" + buffer + ")))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(new URLParameter(" + buffer + "))");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+            	jsp_buffer.append(',');
+            }
+        )
+      | (   (<F25><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(false,");
+
+                buffer = new StringBuilder();
+            }
+            (is_action(jsp_buffer))
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(",(new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | LOOKAHEAD(8) ((<F6><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(true,");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter host
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_action(buffer))
+            {
+                // parameter action
+                jsp_buffer.append(", " + buffer);
+                buffer.setLength(0);
+            }
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(", (new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | ((<F6><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(true,");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_action(buffer))
+            {
+                // parameter action
+                jsp_buffer.append(", " + buffer);
+                buffer.setLength(0);
+            }
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(", (new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | LOOKAHEAD(8) ((<F26><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(false,");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter host
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_action(buffer))
+            {
+                // parameter action
+                jsp_buffer.append(", " + buffer);
+                buffer.setLength(0);
+            }
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(", (new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | ((<F26><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("url(false,");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(", context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_action(buffer))
+            {
+                // parameter action
+                jsp_buffer.append(", " + buffer);
+                buffer.setLength(0);
+            }
+            [   (<COMMA> is_expression(buffer))
+                {
+                    jsp_buffer.append(", (new URLParameterSet().addURLParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addURLParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | (   (<F8><BRACKET_OPEN>)
+            {
+                jsp_buffer.append("context.getFormattedValue(");
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null),context.getFormattedValue(");
+            }
+            (<COMMA> is_expression(jsp_buffer) <BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(",null)");
+            }
+        )
+      | (<F9><BRACKET_OPEN>)
+        {
+            jsp_buffer.append("context.webRoot(");
+            buffer = new StringBuilder();
+        }
+        [   (is_expression(buffer))
+            {
+                // optional parameter server group
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (   (<COMMA> is_expression(buffer))
+                {
+                    // optional parameter locale ID
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+            )
+        ]
+        (<BRACKET_CLOSE>)
+        {
+            jsp_buffer.append(")");
+        }
+      | (   ( <F10> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("(disableErrorMessages().isDefined(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append("))");
+            }
+        )
+      | (   ( <F11> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("stringToHtml(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null))");
+            }
+        )
+      | (   ( <F12> <BRACKET_OPEN> )
+            {
+                // pad
+                jsp_buffer.append("pad(context.getFormattedValue(");
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null),((Number)(");
+            }
+            (<COMMA> is_expression(jsp_buffer) <BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")).intValue())");
+            }
+        )
+      | (   ( <F13> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("stringToXml(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null))");
+            }
+        )
+      | (   ( <F14> <BRACKET_OPEN> )
+            {
+                // trim
+                jsp_buffer.append("(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null).trim())");
+            }
+        )
+      | (   ( <F15> <BRACKET_OPEN> )
+            {
+                // lcase
+                jsp_buffer.append("(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null).toLowerCase())");
+            }
+        )
+      | (   ( <F16> <BRACKET_OPEN> )
+            {
+                // ucase
+                jsp_buffer.append("(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null).toUpperCase())");
+            }
+        )
+      | (   ( <F17> <BRACKET_OPEN> )
+            {
+                // len
+                jsp_buffer.append("(new Double(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null).length()))");
+            }
+        )
+      | (   ( <F18> <BRACKET_OPEN> )
+            {
+                // val
+                jsp_buffer.append("(val(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null)))");
+            }
+        )
+      | (   ( <F19> <BRACKET_OPEN> )
+            {
+                // getCookie
+                jsp_buffer.append("(getCookieValue(request,context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null)))");
+            }
+        )
+      | (   ( <F21> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("contentURL(");
+
+                buffer = new StringBuilder();
+            }
+            ( is_expression(buffer))
+            {
+                // parameter file name
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            [   (<COMMA> is_expression(buffer))
+                {
+                    // optional parameter locale ID
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+                [   (<COMMA> is_expression(buffer))
+                {
+                    // optional parameter locale ID
+                    jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                    buffer.setLength(0);
+                }
+                ]
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | (   ( <F34> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("(hasNext(\"");
+            }
+            ( var_name(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append("\") ? Boolean.TRUE : Boolean.FALSE)");
+            }
+        )
+      | (   ( <F35> <BRACKET_OPEN> )
+            {
+                // replace
+                jsp_buffer.append("replace(context.getFormattedValue(");
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null),(String)(");
+            }
+            (<COMMA> is_expression(jsp_buffer))
+            {
+                jsp_buffer.append("),(String)(");
+            }
+            (<COMMA> is_expression(jsp_buffer) <BRACKET_CLOSE>)
+            {
+                jsp_buffer.append("))");
+            }
+        )
+      | (   ( <F36> <BRACKET_OPEN> )
+            {
+                // split
+                jsp_buffer.append("split(context.getFormattedValue(");
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null),(String)(");
+            }
+            (<COMMA> is_expression(jsp_buffer) <BRACKET_CLOSE>)
+            {
+                jsp_buffer.append("))");
+            }
+        )
+      | (   ( <F37> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("existsTemplate(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null))");  
+            }
+        )
+      | (   ( <F38> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("context.webRoot(");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter host
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter server group
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter locale id
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | (   ( <F39> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("context.contentURL(");
+
+                buffer = new StringBuilder();
+            }
+            (is_expression(buffer))
+            {
+                // parameter protocol
+                jsp_buffer.append("context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter host
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter port
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter server group
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter locale id
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<COMMA> is_expression(buffer))
+            {
+                // parameter content ref
+                jsp_buffer.append(",context.getFormattedValue(" + buffer + ",null)");
+                buffer.setLength(0);
+            }
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | (   ( <F40> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("(");
+                buffer = new StringBuilder();                
+            }            
+            [   (is_expression(buffer))
+                {
+                    jsp_buffer.append("(new ParameterMap().addParameter(" + buffer + "))");
+                    buffer.setLength(0);
+                }
+                (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+                )*
+            ]
+            (<BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+      | (   (<F41> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("new ParameterEntry(");
+            }
+            (is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",");
+            }
+            (<COMMA> is_expression(jsp_buffer) <BRACKET_CLOSE>)
+            {
+                jsp_buffer.append(")");
+            }
+        )
+	 |  (  ( <F42> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("getTemplateSourceLocation(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
+            {
+                jsp_buffer.append(",null))");  
+            }       
+        )
+	 |  (  ( <F43> <BRACKET_OPEN> )
+            {
+                jsp_buffer.append("localizeText(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null)");  
+            }
+            [ 
+            {
+                //optional parameter locale 
+                jsp_buffer.append(",");  
+            }            
+             (<COMMA> is_expression(jsp_buffer))
+            ]    
+            [ 
+            {
+                //optional parameter domain-site
+                jsp_buffer.append(",");  
+            }            
+             (<COMMA> is_expression(jsp_buffer))             
+            ]                    
+            {
+                jsp_buffer.append(")"); 
+            }    
+            (<BRACKET_CLOSE>)        
+        )  
+   	 |  (  ( <F44> <BRACKET_OPEN> )                       
+            {
+                jsp_buffer.append("localizeTextEx(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null),");  
+            }
+            (<COMMA> is_expression(jsp_buffer))
+            [ 
+            {
+                //optional parameter locale 
+                jsp_buffer.append(",");  
+            }            
+             (<COMMA> is_expression(jsp_buffer))
+                           
+            ]    
+            [ 
+            {
+                //optional parameter domain-site
+                jsp_buffer.append(",");  
+            }            
+             (<COMMA> is_expression(jsp_buffer))
+                           
+            ]                    
+            {
+                jsp_buffer.append(")"); 
+            }    
+            (<BRACKET_CLOSE>)            
+        )
+      | (   (<F45><BRACKET_OPEN>)
+            {
+                buffer = new StringBuilder();
+            }
+            ( is_expression(buffer))
+            {
+                    jsp_buffer.append("new ParameterList().addParameter(" + buffer + ")");
+                    buffer.setLength(0);
+            } 
+            (   (<COMMA> is_expression(buffer))
+                    {
+                        jsp_buffer.append(".addParameter(" + buffer + ")");
+                        buffer.setLength(0);
+                    }
+            )*            
+            (<BRACKET_CLOSE>)
+        )
+      |  (  ( <F46> <BRACKET_OPEN> )                       
+            {
+                jsp_buffer.append("encodeString(context.getFormattedValue(");
+            }
+            ( is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(",null)");  
+            }
+            [ 
+            {
+                //optional parameter encoding 
+                jsp_buffer.append(",(String)(");  
+            }            
+            (<COMMA> is_expression(jsp_buffer))
+            {
+                jsp_buffer.append(")");  
+            }            
+            ]    
+            {
+                jsp_buffer.append(")"); 
+            }    
+            (<BRACKET_CLOSE>)        
+        )
+     |
+     userDefinedFunction(jsp_buffer)
+    )
+}
+
+void userDefinedFunction(StringBuilder jsp_buffer) :
+{
+  Token name = null;
+  StringBuilder buffer = null;
+}
+{
+  	(
+  	        (name=<VARNAME> <BRACKET_OPEN>)
+    	    {
+				jsp_buffer.append("customFunction(\"");
+		        jsp_buffer.append(name);
+		        jsp_buffer.append("\"");		        
+		    }
+			(
+ 				{
+ 				  jsp_buffer.append(",");
+ 				}
+			    (is_expression(jsp_buffer))
+
+	            (
+					{
+ 				  		jsp_buffer.append(",");
+ 					}
+	              	(<COMMA> is_expression(jsp_buffer))
+	            )*  
+			)*	
+			{
+			   jsp_buffer.append(")");
+			}            
+           (<BRACKET_CLOSE>)
+  	)
+}
+  
+  
+
+/* rule for embedded JSP expressions */
+
+void jsp_embedded_expression(StringBuilder jsp_buffer) :
+{
+    Token exp = null;
+}
+{
+    (exp=<JSP_EMBEDDED_EXPRESSION>)
+    {
+        jsp_buffer.append(SCRIPTING_END);
+        jsp_buffer.append(SCRIPTING_START);
+        // remove <%= %>
+        String ex = exp.toString();
+        jsp_buffer.append(ex.substring(3, ex.length() - 2));
+        jsp_buffer.append(SCRIPTING_END);
+        jsp_buffer.append(SCRIPTING_START);
+    }
+}
+
+/* rule for embedded JSP expression language */
+
+void jsp_embedded_el(StringBuilder jsp_buffer) :
+{
+    Token exp = null;
+}
+{
+    (exp=<JSP_EMBEDDED_EL>)
+    {
+    	// pass simply through as JSP EL like ${}
+        jsp_buffer.append("pageContext.getExpressionEvaluator().evaluate(\"");
+        
+        // escape any double quotes within the in EL expression
+        String el = exp.toString();
+        for (int i = 0; i < el.length(); i++)
+        {
+        	char ch = el.charAt(i);
+        	if (ch == '"')
+        	{
+		        jsp_buffer.append('\\');
+		    }
+	        jsp_buffer.append(ch);
+	    }
+	        
+        jsp_buffer.append("\", Object.class, pageContext.getVariableResolver(), null)");
+    }
+}
+
+/* rule for ISML expression variables */
+
+void var(StringBuilder jsp_buffer) :
+{ }
+{
+    (
+        {
+            jsp_buffer.append("getObject(\"");
+        }
+        (var_name(jsp_buffer))
+        {
+            jsp_buffer.append("\")");
+        }
+    )
+}
+
+void var_name(StringBuilder jsp_buffer) :
+{
+    Token varname = null;
+}
+{
+    (varname=varName())
+    {
+        jsp_buffer.append(varname);
+    }
+    (
+        (LOOKAHEAD(3)
+              /* variable name with parameter in object path */
+              (
+                  <COLON> (varname=varName()) <BRACKET_OPEN>
+                  {
+                      jsp_buffer.append(':');
+                      jsp_buffer.append(varname);
+                      jsp_buffer.append('(');
+                  }
+                  path_parameter(jsp_buffer)
+                  <BRACKET_CLOSE>
+                  {
+                      jsp_buffer.append(')');
+                  }
+
+              )
+            |
+              /* simple variable name */
+              (<COLON> (varname=varName()))
+              {
+                  jsp_buffer.append(':');
+                  jsp_buffer.append(varname);
+              }
+        )
+    )*
+}
+
+Token varName() :
+{
+  	Token varname = null;
+}
+{
+  	( varname = <VARNAME> 
+  	| varname = <F1>
+  	| varname = <F2>
+  	| varname = <F3>
+  	| varname = <F4>
+  	| varname = <F5>
+  	| varname = <F6>
+  	| varname = <F7>
+  	| varname = <F8>
+  	| varname = <F9>
+  	| varname = <F10>
+  	| varname = <F11>
+  	| varname = <F12>
+  	| varname = <F13>
+  	| varname = <F14>
+  	| varname = <F15>
+  	| varname = <F16>
+  	| varname = <F17>
+  	| varname = <F18>
+  	| varname = <F19>
+  	| varname = <F20>
+  	| varname = <F21>
+  	| varname = <F22>
+  	| varname = <F25>
+  	| varname = <F26>
+  	| varname = <F27>
+  	| varname = <F34>
+  	| varname = <F35>
+  	| varname = <F36>
+  	| varname = <F37>
+  	| varname = <F38>
+  	| varname = <F39>
+  	| varname = <F40>
+  	| varname = <F41>
+  	| varname = <F42>
+  	| varname = <F43>
+  	| varname = <F44>
+  	| varname = <F45>
+  	| varname = <F46>)
+  	{
+  	    return varname;
+  	}
+}
+  
+
+/* rule for parameter in ISML object path */
+
+void path_parameter(StringBuilder jsp_buffer) :
+{
+}
+{
+    // literal support for object path parameter
+    (
+        (path_constant(jsp_buffer)
+        | var_name(jsp_buffer))
+        (
+            <COMMA>          { jsp_buffer.append(','); }
+            (path_constant(jsp_buffer)
+            | var_name(jsp_buffer))
+        )*
+    )
+}
+
+/* rule for constant parameters in ISML object path */
+
+void path_constant(StringBuilder jsp_buffer) :
+{
+    Token value = null;
+}
+{
+    (value=<STRING_DOUBLEQUOTED>)
+    {
+        String stringValue = value.toString();
+
+        jsp_buffer.append('\\');
+        jsp_buffer.append('\"');
+        
+        // the constant value without the quotes
+        jsp_buffer.append(stringValue.substring(1, stringValue.length() - 1));
+        jsp_buffer.append('\\');
+        jsp_buffer.append('\"');
+    }
+}
