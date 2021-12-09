@@ -125,7 +125,7 @@ public class TemplatePrecompileUtils
      * @param sourceFile       - the source ISML file
      * @param destinationFile  - the resulting JSP file
      * @throws IOException if an IO error occurs during the process.
-     * @throws ServletException if the compilation failed.
+     * @throws ISMLException if the compilation failed.
      */
 
     public void compileISML(File sourceFile, File destinationFile) throws IOException, ISMLException
@@ -544,7 +544,7 @@ public class TemplatePrecompileUtils
      * A helper method, which checks, if a custom encoding for a special MIME
      * type is defined. The cutom MIME type in the properties has the syntax.
      *
-     * intershop.template.encoding.<mimeType> = <custom encoding name>
+     * intershop.template.encoding.&lt;mimeType&gt; = &lt;custom encoding name&gt;
      *
      * @param key
      *            the MIME type, for which a mapping should be searched

@@ -48,14 +48,12 @@ public class ISMLTagCompiler implements ISMLtoJSPcompilerConstants
      * @param nestingTable
      *            Stack that contains all previously parsed relevant loop or
      *            conditional tags to check nesting levels etc.
-     * @throws com.intershop.beehive.core.internal.template.isml.ParseException
+     * @throws com.intershop.beehive.isml.internal.parser.ParseException
      *             if an ISML tag does not comply to the current standard
      */
 
     protected static void compileTag(Token tag, CompactingWriter result, Map<String, Object> attributes,
-                    List<Token> nestingTable)
-
-    throws ParseException
+                    List<Token> nestingTable) throws ParseException
     {
         try
         {
