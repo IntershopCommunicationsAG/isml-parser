@@ -4,7 +4,7 @@ This library translates isml (Intershop Markup Language) to jsp (Java Server Pag
 
 ## License
 
-Copyright 2014-2019 Intershop Communications.
+Copyright 2014-2022 Intershop Communications.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
 
