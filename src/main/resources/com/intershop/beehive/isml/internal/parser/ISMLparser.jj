@@ -1150,7 +1150,7 @@ boolean arithmetic_comp(StringBuilder jsp_buffer,StringBuilder buffer2) :
             /* String to double conversions not supported yet
                 jsp_buffer.append(" ((("+buffer2+")instanceof Number)?
                 jsp_buffer.append("(((Number) " + buffer2 + ").doubleValue()):");
-                jsp_buffer.append("((new Double(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
+                jsp_buffer.append("((Double.valueOf(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
             */
             jsp_buffer.append(" ((Number) " + buffer2 + ").doubleValue() " + op.toString());
              /* clearbuffer */
@@ -1202,12 +1202,12 @@ boolean arithmetic_expr(StringBuilder jsp_buffer,StringBuilder buffer2) :
         {
             if (i==0)
             {
-                jsp_buffer.append("(new Double(");
+                jsp_buffer.append("(Double.valueOf(");
             }
             /* String to double conversions not supported yet
                 jsp_buffer.append(" ((("+buffer2+")instanceof Number)?
                 jsp_buffer.append("(((Number) " + buffer2 + ").doubleValue()):");
-                jsp_buffer.append("((new Double(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
+                jsp_buffer.append("((Double.valueOf(context.getFormattedValue(" + buffer2 + ",null))).doubleValue())) " + op.toString());
             */
             jsp_buffer.append(" ((Number) " + buffer2 + ").doubleValue() " + op.toString());
             buffer2.setLength(0);
@@ -1436,11 +1436,11 @@ void numberConstant(StringBuilder jsp_buffer) :
     {
         if (sign==null)
         {
-            jsp_buffer.append("new Double(" + value + ")");
+            jsp_buffer.append("Double.valueOf(" + value + ")");
         }
         else
         {
-            jsp_buffer.append("new Double(" + sign + value + ")");
+            jsp_buffer.append("Double.valueOf(" + sign + value + ")");
         }
     }
 }
@@ -1494,7 +1494,7 @@ void function(StringBuilder jsp_buffer) :
                     }
                   | (value=varName())
                     {
-                        jsp_buffer.append("new Integer(");
+                        jsp_buffer.append("Integer.valueOf(");
                         jsp_buffer.append(value.toString());
                         jsp_buffer.append(')');
                         flag =true;
@@ -1878,7 +1878,7 @@ void function(StringBuilder jsp_buffer) :
       | (   ( <F17> <BRACKET_OPEN> )
             {
                 // len
-                jsp_buffer.append("(new Double(context.getFormattedValue(");
+                jsp_buffer.append("(Double.valueOf(context.getFormattedValue(");
             }
             ( is_expression(jsp_buffer) <BRACKET_CLOSE> )
             {
