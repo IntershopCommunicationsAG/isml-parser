@@ -10,7 +10,7 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "4.1.2"
+    id("com.intershop.gradle.javacc") version "4.1.3"
 
     // intershop version plugin
     id("com.intershop.gradle.scmversion") version "6.2.0"
@@ -39,8 +39,10 @@ javacc {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(11))
+        vendor.set(JvmVendorSpec.ADOPTIUM)
+    }
 
     withJavadocJar()
     withSourcesJar()
