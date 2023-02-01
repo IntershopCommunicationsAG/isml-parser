@@ -1189,7 +1189,7 @@ public class ISMLTagCompiler implements ISMLtoJSPcompilerConstants
                     // process style attribute (optional - value necessary)
                     if (hasValueAttribute(attributes, ATT_STYLE))
                     {
-                        format = "new Integer(" + getValueAttribute(attributes, ATT_STYLE) + ')';
+                        format = "Integer.valueOf(" + getValueAttribute(attributes, ATT_STYLE) + ')';
                     }
                     else if (hasExpressionAttribute(attributes, ATT_STYLE))
                     {
