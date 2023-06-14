@@ -15,9 +15,6 @@
  */
 package com.intershop.beehive.isml.internal.parser;
 
-import com.intershop.beehive.isml.capi.ISMLTemplateConstants;
-import com.intershop.beehive.isml.internal.CharacterSetMappings;
-
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Iterator;
@@ -25,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import com.intershop.beehive.isml.capi.ISMLTemplateConstants;
+import com.intershop.beehive.isml.internal.CharacterSetMappings;
 
 /**
  * The task of this class is to generate JAVA - server side scripting code for
@@ -281,12 +281,12 @@ public class ISMLTagCompiler implements ISMLtoJSPcompilerConstants
 
                     if (keyword != null)
                     {
-                        result.print("NamingMgr.getManager(PageCacheMgr.class).getKeywords().add(" + keyword + ");");
+                        result.print("NamingMgr.get(PageCacheMgr.class).getKeywords().add(" + keyword + ");");
                     }
 
                     if (object != null)
                     {
-                        result.print("NamingMgr.getManager(PageCacheMgr.class).registerObject(" + object + ");");
+                        result.print("NamingMgr.get(PageCacheMgr.class).registerObject(" + object + ");");
                     }
                     result.print('}');
 
