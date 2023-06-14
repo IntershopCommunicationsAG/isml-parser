@@ -1102,7 +1102,7 @@ void is_expression(StringBuilder jsp_buffer) :
             if (flag)
             {
                 /* special handling of case (NOT operator()) */
-                jsp_buffer.append("(((Boolean) " + buffer2 + ").booleanValue() ? Boolean.FALSE : Boolean.TRUE) ");
+                jsp_buffer.append("(!Boolean.valueOf(String.valueOf(" + buffer2+ "))) ");
             }
         }
       | (   operator(buffer2)
@@ -1257,7 +1257,7 @@ boolean boolean_expr(StringBuilder jsp_buffer,StringBuilder buffer2,boolean notS
             {
                 jsp_buffer.append("!");
             }
-            jsp_buffer.append("((Boolean) " + buffer2 + ").booleanValue() ");
+            jsp_buffer.append("Boolean.parseBoolean(String.valueOf(" + buffer2 + ")) ");
             jsp_buffer.append((op.kind==AND)?"&& ":"|| ");
              /* clearbuffer */
             buffer2.setLength(0);
@@ -1274,7 +1274,7 @@ boolean boolean_expr(StringBuilder jsp_buffer,StringBuilder buffer2,boolean notS
         {
             jsp_buffer.append("!");
         }
-        jsp_buffer.append("((Boolean) " + buffer2 + ").booleanValue()) ? Boolean.TRUE : Boolean.FALSE)");
+        jsp_buffer.append("Boolean.valueOf(String.valueOf(" + buffer2 + "))))");
         return false; /* more than one operator */
     }
 }
