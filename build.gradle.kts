@@ -10,22 +10,35 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "4.1.3"
-
-    // intershop version plugin
-    id("com.intershop.gradle.scmversion") version "6.2.0"
-}
-
-scm {
-    version.initialVersion = "11.0.0"
+    id("com.intershop.gradle.javacc") version "5.0.0"
 }
 
 group = "com.intershop.icm"
 description = "Platform - ISML Parser"
-version = scm.version.version
+// apply gradle property 'projectVersion' to project.version, default to 'LOCAL'
+val projectVersion : String? by project
+version = projectVersion ?: "LOCAL"
 
 val sonatypeUsername: String? by project
 val sonatypePassword: String? by project
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+java {
+    withJavadocJar()
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+// set correct project status
+if (project.version.toString().endsWith("-SNAPSHOT")) {
+    status = "snapshot"
+}
 
 javacc {
     configs {
@@ -38,19 +51,24 @@ javacc {
     }
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(11))
-        vendor.set(JvmVendorSpec.ADOPTIUM)
-    }
+testing {
+    suites.withType<JvmTestSuite> {
+        useJUnitJupiter()
+        dependencies {
+            implementation("org.junit.jupiter:junit-jupiter:5.10.1")
+            implementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
+            implementation("org.junit.jupiter:junit-jupiter-engine:5.10.1")
+        }
 
-    withJavadocJar()
-    withSourcesJar()
-}
-
-tasks {
-    withType<Test>().configureEach {
-        useJUnitPlatform()
+        targets {
+            all {
+                testTask.configure {
+                    testLogging {
+                        showStandardStreams = true
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -117,15 +135,6 @@ signing {
     sign(publishing.publications["intershopMvn"])
 }
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
     implementation("org.slf4j:log4j-over-slf4j:1.7.36")
-
-    testImplementation("org.junit.jupiter:junit-jupiter:5.9.0")
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.0")
-
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
 }
