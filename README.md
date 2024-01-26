@@ -2,6 +2,10 @@
 
 This library translates isml (Intershop Markup Language) to jsp (Java Server Pages).
 
+## Contribute
+
+See [here](https://github.com/IntershopCommunicationsAG/.github/blob/main/CONTRIBUTE.asciidoc) for details.
+
 ## License
 
 Copyright 2014-2022 Intershop Communications.
