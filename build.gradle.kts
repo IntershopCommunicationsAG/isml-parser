@@ -54,11 +54,6 @@ javacc {
 testing {
     suites.withType<JvmTestSuite> {
         useJUnitJupiter()
-        dependencies {
-            implementation("org.junit.jupiter:junit-jupiter:5.10.1")
-            implementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
-            implementation("org.junit.jupiter:junit-jupiter-engine:5.10.1")
-        }
 
         targets {
             all {
