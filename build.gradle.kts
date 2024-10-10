@@ -10,7 +10,7 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "5.0.0"
+    id("com.intershop.gradle.javacc") version "5.0.1"
 }
 
 group = "com.intershop.icm"
