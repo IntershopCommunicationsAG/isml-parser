@@ -10,7 +10,7 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "5.0.0"
+    id("com.intershop.gradle.javacc") version "5.0.1"
 }
 
 group = "com.intershop.icm"
@@ -54,11 +54,6 @@ javacc {
 testing {
     suites.withType<JvmTestSuite> {
         useJUnitJupiter()
-        dependencies {
-            implementation("org.junit.jupiter:junit-jupiter:5.10.1")
-            implementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
-            implementation("org.junit.jupiter:junit-jupiter-engine:5.10.1")
-        }
 
         targets {
             all {
