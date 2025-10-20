@@ -12,7 +12,7 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "5.0.1"
+    id("com.intershop.gradle.javacc") version "6.0.0"
 
     id("io.gitee.pkmer.pkmerboot-central-publisher") version "1.1.1"
 }
@@ -35,7 +35,7 @@ java {
     withJavadocJar()
     withSourcesJar()
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -150,5 +150,5 @@ signing {
 }
 
 dependencies {
-    implementation("org.slf4j:log4j-over-slf4j:1.7.36")
+    implementation("org.slf4j:log4j-over-slf4j:2.0.17")
 }
