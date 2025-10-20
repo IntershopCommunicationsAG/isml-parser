@@ -1,7 +1,13 @@
-plugins {
-    id("com.gradle.develocity") version "3.18.1"
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        mavenLocal()
+    }
 }
-
+plugins {
+    id("com.gradle.develocity") version "4.1.1"
+}
 develocity {
     buildScan {
         termsOfUseUrl = "https://gradle.com/help/legal-terms-of-use"
