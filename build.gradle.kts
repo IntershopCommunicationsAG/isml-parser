@@ -12,7 +12,7 @@ plugins {
     // artifact signing - necessary on Maven Central
     signing
 
-    id("com.intershop.gradle.javacc") version "6.0.0"
+    id("com.intershop.gradle.javacc") version "7.0.0"
 
     id("io.gitee.pkmer.pkmerboot-central-publisher") version "1.1.1"
 }
@@ -20,11 +20,11 @@ plugins {
 group = "com.intershop.icm"
 description = "Platform - ISML Parser"
 // apply gradle property 'projectVersion' to project.version, default to 'LOCAL'
-val projectVersion : String? by project
+val projectVersion = project.findProperty("projectVersion") as String?
 version = projectVersion ?: "LOCAL"
 
-val sonatypeUsername: String? by project
-val sonatypePassword: String? by project
+val sonatypeUsername = project.findProperty("sonatypeUsername") as String?
+val sonatypePassword = project.findProperty("sonatypePassword") as String?
 
 repositories {
     mavenCentral()
@@ -44,6 +44,10 @@ if (project.version.toString().endsWith("-SNAPSHOT")) {
     status = "snapshot"
 }
 
+// dependency versions
+val junitVersion = "6.1.3"
+val slf4jVersion = "2.0.19"
+
 javacc {
     configs {
         register("ismlParser") {
@@ -57,7 +61,7 @@ javacc {
 
 testing {
     suites.withType<JvmTestSuite> {
-        useJUnitJupiter()
+        useJUnitJupiter(junitVersion)
 
         targets {
             all {
@@ -150,5 +154,5 @@ signing {
 }
 
 dependencies {
-    implementation("org.slf4j:log4j-over-slf4j:2.0.17")
+    implementation("org.slf4j:log4j-over-slf4j:$slf4jVersion")
 }
