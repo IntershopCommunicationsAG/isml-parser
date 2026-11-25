@@ -1,6 +1,6 @@
 # Intershop Commerce Management isml-Parser
 
-This library translates isml (Intershop Markup Language) to jsp (Java Server Pages).
+This library translates isml (Intershop Markup Language) to jsp (Java Server Pages). It requires Java 25 or later.
 
 ## Contribute
 

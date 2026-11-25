@@ -1240,7 +1240,7 @@ public class ISMLTagCompiler implements ISMLtoJSPcompilerConstants
                     // expression allowed)
                     if (hasValueAttribute(attributes, ATT_PADDING))
                     {
-                        int padding = (new Double(getValueAttribute(attributes, ATT_PADDING))).intValue();
+                        int padding = (int) Double.parseDouble(getValueAttribute(attributes, ATT_PADDING));
 
                         result.print("value=pad(value," + padding + ");");
                     }
