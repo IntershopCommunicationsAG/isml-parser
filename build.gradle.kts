@@ -26,6 +26,9 @@ version = projectVersion ?: "LOCAL"
 val sonatypeUsername = project.findProperty("sonatypeUsername") as String?
 val sonatypePassword = project.findProperty("sonatypePassword") as String?
 
+// Java version for compiling, Javadoc and tests
+val javaLanguageVersion: JavaLanguageVersion = JavaLanguageVersion.of(25)
+
 repositories {
     mavenCentral()
     mavenLocal()
@@ -35,7 +38,7 @@ java {
     withJavadocJar()
     withSourcesJar()
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = javaLanguageVersion
     }
 }
 

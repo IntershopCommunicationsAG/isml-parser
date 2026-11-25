@@ -54,6 +54,20 @@ class ISMLtoJSPTest
         assertTrue(compile("#stringToHtml(webroot())#").contains("stringToHtml("));
     }
 
+    /**
+     * Tests the {@code padding} attribute of {@code ISPRINT}: a constant value is converted to an {@code int} at
+     * compile time (decimal places are cut off), an expression is converted at runtime.
+     */
+    @Test
+    void testCompilePrintPadding() throws Exception
+    {
+        assertTrue(compile("<isprint value=\"#a#\" padding=\"5\">").contains("value=pad(value,5);"));
+        assertTrue(compile("<isprint value=\"#a#\" padding=\"5.7\">").contains("value=pad(value,5);"));
+        assertTrue(compile("<isprint value=\"#a#\" padding=\"-3\">").contains("value=pad(value,-3);"));
+        assertTrue(compile("<isprint value=\"#a#\" padding=\"#b#\">")
+                        .contains("value=pad(value,((Number)("));
+    }
+
     protected String compile(String source) throws Exception
     {
         ByteArrayInputStream in = new ByteArrayInputStream(source.getBytes());
